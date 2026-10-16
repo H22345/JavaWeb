@@ -1,0 +1,52 @@
+# ===== SHmarketplace 一键部署 =====
+# 用法：把这个文件 + Dockerfile + 数据库初始化SQL 放到服务器同一个目录，然后：
+#   docker compose up -d --build
+# 就自动起好 MySQL + Spring Boot，后端服务监听 8080 端口
+# 数据库数据会持久化到 ./mysql-data 目录（删容器不会丢数据）
+
+services:
+  # ===== MySQL 数据库 =====
+  mysql:
+    image: mysql:8.0
+    container_name: shmarketplace-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-060711}  # 生产一定改！或者留空用 .env 文件
+      MYSQL_DATABASE: shmarketplace
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"   # 本机 3306 映射到容器 3306（如果服务器本地有其他 MySQL 可改成 3307:3306）
+    volumes:
+      - mysql-data:/var/lib/mysql          # 数据库数据持久化
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # 第一次启动自动执行初始化SQL（可选）
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - shmarketplace-network
+
+  # ===== Spring Boot 后端 =====
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shmarketplace-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql           # 等 MySQL 起好再启动
+    environment:
+      # 这些值会注入到容器里，被 application-prod.properties 里的 ${ENV_VAR} 读取
+      DB_URL: jdbc:mysql://mysql:3306/shmarketplace?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf-8
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-060711}  # 生产改这里！
+      JWT_SECRET: ${JWT_SECRET:-please_change_this_to_a_random_base64_string_060711}  # 生产改这里！
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"     # 后端对外暴露 8080 端口，前端对接这个端口
+    networks:
+      - shmarketplace-network
+
+volumes:
+  mysql-data:          # MySQL 数据卷，持久化数据库文件
+
+networks:
+  shmarketplace-network:  # 内部网络，两个容器用这个网络通信
+    driver: bridge
